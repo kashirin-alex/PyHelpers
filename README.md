@@ -2,8 +2,8 @@
 ### Python Helper Extensions, a 'pyhelpers' Module 
 
 #### INSTALLING 
+- builds and works with: Python2.7, Python3.7, PyPy2. (linux)
   > pip install --upgrade https://github.com/kashirin-alex/PyHelpers/archive/master.zip
-  
 
 
 ## class UdpDispatcher in module pyhelpers.udp_dispatcher 
