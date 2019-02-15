@@ -22,6 +22,7 @@ threads = []
 conf = {'d': None, 'c': 0}
 integrity = {}
 to_run = True
+client_af = socket.AF_INET6 if '.' in host_ip else socket.AF_INET
 
 send_bytes_clt = 32
 send_bytes_srv = 1024*send_bytes_clt
@@ -88,7 +89,7 @@ proc_state()
 
 def run_clt_sock(tn, addr, run):
     print ('running py thread', 'clt', tn, addr)
-    udp_s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    udp_s = socket.socket(client_af, socket.SOCK_DGRAM)
     udp_s.settimeout(5)
     while run():
         try:
