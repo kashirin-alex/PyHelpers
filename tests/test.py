@@ -7,10 +7,12 @@ import psutil
 import time
 import threading
 
+host_ip = "127.0.0.1"
+host_port = 1100
 original_udp_send = False
 with_req_load = False
-num_threads = 2
-test_duration = 30  # secs
+num_threads = 8
+test_duration = 10  # secs
 
 p = psutil.Process()
 udp_socks = []
@@ -29,7 +31,8 @@ send_buf_srv = 32*1024
 
 def proc_state():
     print ('num_threads', p.num_threads(), 'cpu_percent', p.cpu_percent(),
-           conf['d'].queued() if not original_udp_send and conf['d'] is not None else 0)
+           'queued', conf['d'].queued() if not original_udp_send and conf['d'] is not None else 0,
+           'avg', conf['d'].stats_avg(True) if not original_udp_send and conf['d'] is not None else 0)
     #
 
 #
@@ -46,7 +49,7 @@ def run_srv_sock(tn, run):
     udp_s.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 512)
     udp_s.settimeout(5)
 
-    port = 1100
+    port = host_port
     udp_s.bind(('::', port))
     ports.append(port)
     udp_socks.append(udp_s)
@@ -109,7 +112,7 @@ for srv_port in ports:
     for n in range(1, num_threads+1):
         clt_n += 1
         threading.Thread(target=run_clt_sock, name=str(clt_n),
-                         args=[clt_n, ("2a01:4f8:211:2757::2", srv_port), lambda: to_run]).start()
+                         args=[clt_n, (host_ip, srv_port), lambda: to_run]).start()
 proc_state()
 
 

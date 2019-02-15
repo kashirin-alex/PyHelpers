@@ -12,6 +12,7 @@
 #include <string>
 #include <atomic>
 #include <mutex>
+#include <chrono>
 
 #include <pybind11/pybind11.h>
 namespace py = pybind11;
@@ -65,6 +66,15 @@ class UdpDispatcher{
       return m_queue.size();
     }
 
+    u_int32_t stats_avg(bool reset){
+      u_int32_t avg = m_stat_avg.load();
+      if(reset){
+        m_stat_avg.store(0);
+        m_stat_c.store(0);
+      }
+      return avg;
+    }
+
     void shutdown(){
       m_run.store(false);
       m_blocker.unlock();
@@ -93,7 +103,7 @@ class UdpDispatcher{
 
           dispatch_item(get_item());
           
-          if(errno & (EBADF | ENOTCONN)) 
+          if(errno == EBADF || errno == ENOTCONN)
             break;
 
           if(queued()>0)
@@ -112,12 +122,21 @@ class UdpDispatcher{
     }
 
     void dispatch_item(QueueItem item){
+      auto start = std::chrono::high_resolution_clock::now();
+
       errno = 0;
       DestAddr to = {0};
       set_dest_addr(item.addr, htons(item.port), &to);
-      
-      if(errno == 0 && sendto(m_fd, item.data.c_str(), item.data.length(), m_flags, to.addr, to.len)  > -1)
-          return;
+
+      if(errno == 0 && sendto(m_fd, item.data.c_str(), item.data.length(), m_flags, to.addr, to.len)  > -1){
+          
+        auto finish = std::chrono::high_resolution_clock::now();
+        m_stat_avg.store((m_stat_avg * m_stat_c
+                          + (std::chrono::duration_cast<std::chrono::nanoseconds>(start - finish)).count()
+                         ) / (m_stat_c + 1));
+        m_stat_c++;
+        return;
+      }
 
       std::cerr << "Error dispatch_item: " << item.addr << ":" << item.port 
                 << " data-sz: " << item.data.length()
@@ -151,6 +170,8 @@ class UdpDispatcher{
     std::mutex m_blocker;
 
     std::atomic<bool> m_run=true;
+    std::atomic<uint32_t>  m_stat_c=0;
+    std::atomic<uint32_t>  m_stat_avg=0;
 };
 
 
@@ -162,10 +183,11 @@ PYBIND11_MODULE(udp_dispatcher, m) {
   m.doc() = "Python Helper to dispatch udp messages without blocking/waiting";
 
   py::class_<PyHelpers::UdpDispatcher, std::unique_ptr<PyHelpers::UdpDispatcher, py::nodelete>>(m, "UdpDispatcher")
-    .def(py::init<int , int>(), py::arg("fileno"), py::arg("flags") = NULL )
-    .def("push", &PyHelpers::UdpDispatcher::push, py::arg("ip"), py::arg("port"), py::arg("data") )
-    .def("queued", &PyHelpers::UdpDispatcher::queued)
-    .def("shutdown", &PyHelpers::UdpDispatcher::shutdown)
+    .def(py::init<int , int>(),                           py::arg("fileno"), py::arg("flags") = NULL )
+    .def("push",      &PyHelpers::UdpDispatcher::push,    py::arg("ip"), py::arg("port"), py::arg("data") )
+    .def("queued",    &PyHelpers::UdpDispatcher::queued)
+    .def("stats_avg",  &PyHelpers::UdpDispatcher::stats_avg,  py::arg("reset") = true)
+    .def("shutdown",  &PyHelpers::UdpDispatcher::shutdown)
   ;
 }
 
