@@ -35,6 +35,9 @@ dispatcher.push(address[0], address[1], data)
 # to check on the dispatcher's queue size
 q_size = dispatcher.queued()
 
+# to check on the dispatcher's avg (ns) latency, arg reset=bool whether to reset stats
+avg_ns = dispatcher.stats_avg(reset=True)
+
 # Important to stop the UdpDispatcher handler(a detached thread and to close it's fd ) as no longer required
 dispatcher.shutdown()
 
