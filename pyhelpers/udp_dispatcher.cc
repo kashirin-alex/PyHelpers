@@ -23,6 +23,7 @@ struct QueueItem {
   std::string   addr;
   int           port;
   std::string   data;
+  std::chrono::high_resolution_clock::time_point start;
 };
 
 struct DestAddr {
@@ -50,14 +51,15 @@ class UdpDispatcher{
     }
 
     void push(std::string addr, int port, std::string data){
-      std::lock_guard<std::mutex> lock(m_q_mutex);	
-      
       QueueItem item;
       item.addr = addr;
       item.port = port;
       item.data = data;
-      m_queue.push_back(item);
-
+      item.start = std::chrono::high_resolution_clock::now();
+      {
+        std::lock_guard<std::mutex> lock(m_q_mutex);	
+        m_queue.push_back(item);
+      }
       m_blocker.unlock();
     }
 
@@ -122,17 +124,16 @@ class UdpDispatcher{
     }
 
     void dispatch_item(QueueItem item){
-      auto start = std::chrono::high_resolution_clock::now();
 
       errno = 0;
       DestAddr to = {0};
       set_dest_addr(item.addr, htons(item.port), &to);
 
       if(errno == 0 && sendto(m_fd, item.data.c_str(), item.data.length(), m_flags, to.addr, to.len)  > -1){
-          
-        auto finish = std::chrono::high_resolution_clock::now();
         m_stat_avg.store((m_stat_avg * m_stat_c
-                          + (std::chrono::duration_cast<std::chrono::nanoseconds>(start - finish)).count()
+                          + (std::chrono::duration_cast<std::chrono::nanoseconds>(
+                              item.start - std::chrono::high_resolution_clock::now())
+                            ).count()
                          ) / (m_stat_c + 1));
         m_stat_c++;
         return;
