@@ -22,7 +22,7 @@ threads = []
 conf = {'d': None, 'c': 0}
 integrity = {}
 to_run = True
-client_af = socket.AF_INET6 if '.' in host_ip else socket.AF_INET
+client_af = socket.AF_INET if '.' in host_ip else socket.AF_INET6
 
 send_bytes_clt = 32
 send_bytes_srv = 1024*send_bytes_clt
