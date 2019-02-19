@@ -183,11 +183,11 @@ class UdpDispatcher{
 PYBIND11_MODULE(udp_dispatcher, m) {
   m.doc() = "Python Helper to dispatch udp messages without blocking/waiting";
 
-  py::class_<PyHelpers::UdpDispatcher, std::unique_ptr<PyHelpers::UdpDispatcher, py::nodelete>>(m, "UdpDispatcher")
+  py::class_<PyHelpers::UdpDispatcher, std::shared_ptr<PyHelpers::UdpDispatcher>>(m, "UdpDispatcher")
     .def(py::init<int , int>(),                           py::arg("fileno"), py::arg("flags") = NULL )
     .def("push",      &PyHelpers::UdpDispatcher::push,    py::arg("ip"), py::arg("port"), py::arg("data") )
     .def("queued",    &PyHelpers::UdpDispatcher::queued)
-    .def("stats_avg",  &PyHelpers::UdpDispatcher::stats_avg,  py::arg("reset") = true)
+    .def("stats_avg", &PyHelpers::UdpDispatcher::stats_avg,  py::arg("reset") = true)
     .def("shutdown",  &PyHelpers::UdpDispatcher::shutdown)
   ;
 }
