@@ -191,10 +191,3 @@ print ('*'*80)
 
 if not f:
     exit(1)
-
-#               original_udp_send | dispatcher
-# py-2 trx      863544              544415
-# py-3 trx      905657              363847
-# pypy trx      229255              171673
-
-#

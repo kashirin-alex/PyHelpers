@@ -9,17 +9,6 @@ include_dirs = [sysconfig.get_python_inc(plat_specific=True), '/usr/local/includ
 
 
 extenstions = [
-    Extension('pyhelpers.udp_dispatcher',
-              sources=['pyhelpers/udp_dispatcher.cc'],
-              include_dirs=include_dirs,
-              libraries=[],
-              library_dirs=library_dirs,
-              extra_compile_args=['-D_LARGEFILE_SOURCE', '-D_FILE_OFFSET_BITS=64', '-m64', '-D_REENTRANT', '-DNDEBUG',
-                                  '-s', '-static-libgcc', '-static-libstdc++', '-fPIC', '-std=c++17',
-                                  '-O3', '-flto', '-fuse-linker-plugin', '-ffat-lto-objects', '-floop-interchange'],
-              # language='c++17',
-              ),
-    # from pyhelpers.udp_dispatcher import UdpDispatcher
     Extension('pyhelpers.udp_handler_dest',
               sources=['pyhelpers/udp_handler_dest.cc'],
               include_dirs=include_dirs,
