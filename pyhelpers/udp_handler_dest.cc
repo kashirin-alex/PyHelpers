@@ -302,7 +302,7 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
       errno = 0; 
       
       char buf[m_rcvbuff];
-      memset(buf, 0, sizeof(buf));
+      // memset(buf, 0, sizeof(buf));
 
       struct sockaddr_storage caddr;
       socklen_t caddrlen = sizeof(caddr);
