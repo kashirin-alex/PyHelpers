@@ -11,7 +11,7 @@
  The name of class UdpHandlerDest "dest" is after the methods used that are based on communication with a destination address
 ##### Good use cases:
   * handling outgoing buffers for DNS responses.
-  * instead use of many fds on python poll use one eventfd to get the incoming queue state .
+  * instead use of many fds on python poll, use one eventfd to get the incoming queue state .
 
 
 ##### USING
@@ -28,7 +28,7 @@ UdpHandlerDest class Initializer , several initializations are allowed.
    * debug_level, 0-6, 0: none 
    
  * the handler does not do recvfrom handling in-case event_fd is "-1" or recv_reactors is "0" 
- The running number of threads of the handler in total are recv_reactors + send_reactors + Epoll(thread)
+ * The running number of threads of the handler in total are recv_reactors + send_reactors + Epoll(thread)
  
 ```python
 
@@ -66,7 +66,7 @@ def run_udp_handler():
         count = event_fd.receive()
         for v in range(count):
             req = handler.get_recved()
-            # return empty tuple() or (c_addr, c_port, data, delay_ns)
+            # get_recved: return empty tuple() or (c_addr, c_port, data, delay_ns)
             if not req:
                 continue
             greenthread.spawn_n(process_req, req)
