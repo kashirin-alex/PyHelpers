@@ -134,7 +134,7 @@ class UdpDispatcher : std::enable_shared_from_this<UdpDispatcher>{
 
   public:
 
-    UdpDispatcher(int sock_fileno, int snd_flags,  QueueMsgPtr queue, bool debug):
+    UdpDispatcher(int sock_fileno, int snd_flags,  QueueMsgPtr queue, int debug):
                   m_fd(dup(sock_fileno)), m_snd_flags(snd_flags), m_queue(queue), 
                   m_debug(debug) {}
 
@@ -236,8 +236,8 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
 
   public:
 
-    UdpReceiver(int ev_fileno, int sendbuff_sz, QueueMsgPtr q_received, QueueFdPtr q_fds, bool debug):
-                m_ev_fd(ev_fileno), m_sendbuff_sz(sendbuff_sz),
+    UdpReceiver(int ev_fileno, int rcvbuff, QueueMsgPtr q_received, QueueFdPtr q_fds, int debug):
+                m_ev_fd(ev_fileno), m_rcvbuff(rcvbuff),
                 m_queue_received(q_received), m_queue_fds(q_fds), 
                 m_debug(debug) {}
 
@@ -300,8 +300,8 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
     bool receive(int sockfd){
 
       errno = 0; 
-
-      char buf[m_sendbuff_sz];
+      
+      char buf[m_rcvbuff];
       memset(buf, 0, sizeof(buf));
 
       struct sockaddr_storage caddr;
@@ -309,7 +309,7 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
 
       ssize_t nbytes;
       
-      if((nbytes = recvfrom(sockfd, buf, m_sendbuff_sz, 0,(struct sockaddr *) &caddr, &caddrlen)) < 1){
+      if((nbytes = recvfrom(sockfd, (char *)buf, m_rcvbuff, 0, (struct sockaddr *) &caddr, &caddrlen)) < 1){
         return false;
       }
 
@@ -336,7 +336,7 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
       }
 
       msg.addr = c_addr;
-      msg.data = buf;
+      msg.data = std::string(buf, nbytes);
       msg.ts_ns = ts_ns_now();
       m_queue_received->push_back(msg);
 
@@ -352,7 +352,7 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
 
     std::atomic<bool>      m_run=true;
 
-    int m_ev_fd, m_sendbuff_sz;
+    int m_ev_fd, m_rcvbuff;
     QueueMsgPtr m_queue_received;
     QueueFdPtr m_queue_fds;
 
@@ -369,7 +369,7 @@ class Epoll : std::enable_shared_from_this<Epoll>{
 
   public:
   
-    Epoll(int poll_fd, int max_evs, QueueFdPtr q_fds, bool debug): 
+    Epoll(int poll_fd, int max_evs, QueueFdPtr q_fds, int debug): 
           m_poll_fd(poll_fd), m_max_evs(max_evs), m_queue_fds(q_fds), m_debug(debug) {}
 
     void run(){
@@ -431,7 +431,7 @@ class UdpHandlerDest {
     UdpHandlerDest(int sock_fileno, 
                    int send_reactors, int send_flags, 
                    int ev_fileno, int recv_reactors, int recv_sockets_a_reactor,
-                   bool debug) : m_debug(debug) {
+                   int debug) : m_debug(debug) {
       
       // UdpDispatcher threads setup
       if(send_reactors > 0){
@@ -449,14 +449,14 @@ class UdpHandlerDest {
           std::cerr << "Error ev_fileno is '-1' ";
 
         // Get size for receiving buffer
-        int sendbuff = 512;
-        socklen_t optlen = sizeof(sendbuff);
-        if(getsockopt(sock_fileno, SOL_SOCKET, SO_RCVBUF, &sendbuff, &optlen) == -1)
+        int rcvbuff = 512;
+        socklen_t optlen = sizeof(rcvbuff);
+        if(getsockopt(sock_fileno, SOL_SOCKET, SO_RCVBUF, &rcvbuff, &optlen) == -1)
           std::cerr << "Error getsockopt: SO_RCVBUF ";
         
         UdpReceiverPtr r_ptr;
         for(int t=0;t<recv_reactors;t++){
-          r_ptr = std::make_shared<UdpReceiver>(ev_fileno, sendbuff, m_queue_received, m_queue_fds, debug);
+          r_ptr = std::make_shared<UdpReceiver>(ev_fileno, rcvbuff, m_queue_received, m_queue_fds, debug);
           std::thread ( [d=r_ptr]{ d->run(); } ).detach();
           m_receivers.push_back(r_ptr);
         }
@@ -608,7 +608,7 @@ PYBIND11_MODULE(udp_handler_dest, m) {
       PyHelpers::QueueItemMsg msg = hdlr->get_recved();
       if(msg.addr.empty()) 
         return py::make_tuple();
-      return py::make_tuple(msg.addr, msg.port, msg.data, PyHelpers::ts_ns_now()-msg.ts_ns);
+      return py::make_tuple(py::bytes(msg.addr), msg.port, py::bytes(msg.data), PyHelpers::ts_ns_now()-msg.ts_ns);
     })
 
     .def("queued_send", &PyHelpers::UdpHandlerDest::queued_send)
