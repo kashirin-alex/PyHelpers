@@ -23,12 +23,12 @@ UdpHandlerDest class Initializer , several initializations are allowed.
    * send_reactors=1, the number of sending reactors(threads) reading from the dispatching queue and doing sendto
    * send_flags=0, the flag to be applied to the sendto, such as DONTWAIT(0x40) | 
    * event_fd=-1, the eventfd to use for writing recved count, used for blocking the eventfd.receive counts
-   * recv_reactors, the number of reactor act to epoll fd events and do recvfrom, add to received queue and write event count
+   * recv_reactors, the number of reactors of epoll to  number of fds and do recvfrom follow add to received queue and write event count
    * recv_sockets_a_reactor, number of fds created for each reactor, 
    * debug_level, 0-6, 0: none 
    
  * the handler does not do recvfrom handling in-case event_fd is "-1" or recv_reactors is "0" 
- * The running number of threads of the handler in total are recv_reactors + send_reactors + Epoll(thread)
+ * The running number of threads of the handler in total are recv_reactors + send_reactors
  
 ```python
 

@@ -108,6 +108,7 @@ greenthread.spawn_n(run_receive_events)
 
 #
 
+ev_sleep(3)
 
 def run_clt_sock(tn, addr, run):
     print ('running py thread', 'clt', tn, addr)
@@ -154,7 +155,7 @@ if q > 0:
 
 ev_sleep(3)
 to_run = False
-ev_sleep(3)
+ev_sleep(10)
 
 for s in udp_socks:
     try:

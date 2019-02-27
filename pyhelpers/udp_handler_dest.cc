@@ -32,9 +32,6 @@ struct QueueItemMsg {
   int64_t       ts_ns;
 };
 
-// QueueItemFd
-typedef int QueueItemFd;
-
 
 // Blockable Thread-Safe Queue<ItemType>
 template <class T>
@@ -95,7 +92,6 @@ class Queue : std::enable_shared_from_this<Queue<T>>{
 
 };
 typedef std::shared_ptr<Queue<QueueItemMsg>>  QueueMsgPtr;
-typedef std::shared_ptr<Queue<QueueItemFd>>   QueueFdPtr;
 
 
 struct DestAddr {
@@ -135,8 +131,11 @@ class UdpDispatcher : std::enable_shared_from_this<UdpDispatcher>{
   public:
 
     UdpDispatcher(int sock_fileno, int snd_flags,  QueueMsgPtr queue, int debug):
-                  m_fd(dup(sock_fileno)), m_snd_flags(snd_flags), m_queue(queue), 
-                  m_debug(debug) {}
+                  m_snd_flags(snd_flags), m_queue(queue), m_debug(debug) {
+      
+      m_fd = dup(sock_fileno),
+      m_run.store(true);
+    }
 
     void run(){
 
@@ -165,6 +164,8 @@ class UdpDispatcher : std::enable_shared_from_this<UdpDispatcher>{
 
     std::atomic<uint32_t>  m_stat_sendto_c=0;
     std::atomic<uint32_t>  m_stat_sendto_avg=0;
+
+    std::atomic<bool> m_run=false;
 
   private:
 
@@ -218,7 +219,6 @@ class UdpDispatcher : std::enable_shared_from_this<UdpDispatcher>{
 
     }
 
-    std::atomic<bool>      m_run=true;
 
     int m_fd, m_snd_flags;
     QueueMsgPtr m_queue;
@@ -236,55 +236,98 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
 
   public:
 
-    UdpReceiver(int ev_fileno, int rcvbuff, QueueMsgPtr q_received, QueueFdPtr q_fds, int debug):
-                m_ev_fd(ev_fileno), m_rcvbuff(rcvbuff),
-                m_queue_received(q_received), m_queue_fds(q_fds), 
-                m_debug(debug) {}
+    UdpReceiver(int sock_fileno, int recv_sockets_a_reactor,  
+                QueueMsgPtr q_received, int ev_fileno, int debug):
+                m_max_evs(recv_sockets_a_reactor), m_ev_fd(ev_fileno), 
+                m_queue_received(q_received), 
+                m_debug(debug) {
+
+      // Get size for receiving buffer
+      m_rcvbuff = 512;
+      socklen_t optlen = sizeof(m_rcvbuff);
+      if(getsockopt(sock_fileno, SOL_SOCKET, SO_RCVBUF, &m_rcvbuff, &optlen) == -1)
+        std::cerr << "Error getsockopt: SO_RCVBUF ";
+        
+
+      m_poll_fd = epoll_create(recv_sockets_a_reactor);
+      if (m_poll_fd == -1) 
+        std::cerr << "Error epoll_create";
+
+      struct epoll_event ev;
+      for(int t=0; t < recv_sockets_a_reactor; t++){
+        ev = {};
+        ev.events = EPOLLIN;
+	      ev.data.fd = dup(sock_fileno);   
+        m_socks.push_back(ev.data.fd);
+
+        make_socket_nonblocking(ev.data.fd);
+	      if (epoll_ctl(m_poll_fd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1)
+            std::cerr << "Error epollf_ctl:" << m_poll_fd << "\n";
+      }
+      
+      m_run.store(true);
+    }
 
     void run(){
-      int fd;
+
       bool rcv;
       uint64_t  count = 0;
       int ev_sent;
 
-      while(1){
-        m_queue_fds->should_block();
+      int nfds;
+      
+      struct epoll_event *events;
+      events = (struct epoll_event *)malloc(sizeof(struct epoll_event) * m_max_evs);
+      memset(events, 0, sizeof(struct epoll_event) * m_max_evs);
 
-        if(!m_run.load()) 
-          break;
-        
-        fd = m_queue_fds->pop_first();
-        
-        if(m_debug >= 4)
-          std::cout << "UdpReceiver run, " << "fd " << fd  << "\n";
-        if(fd < 1)
-          continue;
+      while(m_run.load()){
+        errno = 0;
+        nfds = epoll_wait(m_poll_fd, events, m_max_evs, 5);
+	      if (nfds == -1 && errno == EBADF) {
+          std::cerr << "Error epoll_wait: " << errno << " " << strerror(errno) << "\n";
+			    break;
+		    }
 
-        rcv = receive(fd);
+		    for (int n = 0; n < nfds; ++n) {
+          if (events[n].events & EPOLLIN) {
+            
+            if(m_debug >= 4)
+              std::cout << "epoll_wait, " << "EPOLLIN " << events[n].data.fd << "\n";
+            
+            errno = 0; 
+            rcv = receive(events[n].data.fd);
         
-        if(m_debug >= 5 && errno != 0)
-          std::cout << "UdpReceiver run, " << "fd " << fd 
-                    <<"errno " << errno << " " << strerror(errno) << "\n";
+            if(m_debug >= 5 && errno != 0)
+              std::cout << "UdpReceiver run, " << "fd " << events[n].data.fd 
+                        <<"errno " << errno << " " << strerror(errno) << "\n";
+            if(errno == EBADF || errno == ENOTCONN)
+              break;
 
-        if(errno == EBADF || errno == ENOTCONN)
-          break;
-        if(!rcv)
-          continue;
+            if(!rcv)
+              continue;
           
-        count++;
-        if(count >= INT64_MAX )
-          count = 1;
-        errno = 0; 
-        if((ev_sent = write(m_ev_fd, &count, sizeof(uint64_t))) > 0)
-          count--;
-        if(errno != 0)
-          std::cerr << "Error ev_write: " << errno << " " << strerror(errno) << "\n";
+            count++;
+            if(count >= INT64_MAX )
+              count = 1;
+            errno = 0; 
+            if((ev_sent = write(m_ev_fd, &count, sizeof(uint64_t))) > 0)
+              count--;
+            if(errno != 0)
+              std::cerr << "Error ev_write: " << errno << " " << strerror(errno) << "\n";
 
-        if(ev_sent == -1 && (errno == EBADF || errno == ENOTCONN))
-          break;
+            if(ev_sent == -1 && (errno == EBADF || errno == ENOTCONN))
+              break;
+          }
+        }
       }
 
-      try { close(m_ev_fd); } catch (...) {}
+      free(events);
+      
+      try { close(m_poll_fd); } catch (...) {} 
+      for(int fd : m_socks)
+        try { close(fd); } catch (...) {} 
+
+      shutdown();
     }
 
     void shutdown(){
@@ -295,12 +338,12 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
       shutdown();
     }
 
-  private:
+    std::atomic<bool> m_run = false;
 
+  private:
+    
     bool receive(int sockfd){
 
-      errno = 0; 
-      
       char buf[m_rcvbuff];
       // memset(buf, 0, sizeof(buf));
 
@@ -350,77 +393,17 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
       return true;
     }
 
-    std::atomic<bool>      m_run=true;
-
     int m_ev_fd, m_rcvbuff;
     QueueMsgPtr m_queue_received;
-    QueueFdPtr m_queue_fds;
+
+    int m_poll_fd, m_max_evs;
+    std::vector<int> m_socks;
 
     int m_debug;
     
 };
 typedef std::shared_ptr<UdpReceiver> UdpReceiverPtr;
 // UdpReceiver end
-
-
-
-// Epoll
-class Epoll : std::enable_shared_from_this<Epoll>{
-
-  public:
-  
-    Epoll(int poll_fd, int max_evs, QueueFdPtr q_fds, int debug): 
-          m_poll_fd(poll_fd), m_max_evs(max_evs), m_queue_fds(q_fds), m_debug(debug) {}
-
-    void run(){
-      int nfds;
-      
-      struct epoll_event *events;
-      events = (struct epoll_event *)malloc(sizeof(struct epoll_event) * m_max_evs);
-      memset(events, 0, sizeof(struct epoll_event) * m_max_evs);
-
-      while(m_run.load()){
-        errno = 0;
-        nfds = epoll_wait(m_poll_fd, events, m_max_evs, 5);
-	      if (nfds == -1 && errno == EBADF) {
-          std::cerr << "Error epoll_wait: " << errno << " " << strerror(errno) << "\n";
-			    break;
-		    }
-
-		    for (int n = 0; n < nfds; ++n) {
-          if (events[n].events & EPOLLIN) {
-            m_queue_fds->push_back(events[n].data.fd);
-            if(m_debug >= 4)
-              std::cout << "Epoll run, " << "EPOLLIN " << events[n].data.fd << "\n";
-          }
-        }
-      }
-
-      free(events);
-      m_run.store(false);
-      try { close(m_poll_fd); } catch (...) {} 
-    }
-
-    void shutdown(){
-      m_run.store(false);
-      try { close(m_poll_fd); } catch (...) {} 
-    }
-
-    virtual ~Epoll(){
-      shutdown();
-    }
-
-  private:
-
-    std::atomic<bool>      m_run=true;
-
-    int m_poll_fd, m_max_evs;
-    QueueFdPtr m_queue_fds;
-
-    int m_debug;
-};
-typedef std::shared_ptr<Epoll> EpollPtr;
-// Epoll end
 
 
 
@@ -444,50 +427,35 @@ class UdpHandlerDest {
       }
 
       // UdpReceiver threads setup
-      if(recv_reactors > 0){
-        if(ev_fileno == -1)
-          std::cerr << "Error ev_fileno is '-1' ";
-
-        // Get size for receiving buffer
-        int rcvbuff = 512;
-        socklen_t optlen = sizeof(rcvbuff);
-        if(getsockopt(sock_fileno, SOL_SOCKET, SO_RCVBUF, &rcvbuff, &optlen) == -1)
-          std::cerr << "Error getsockopt: SO_RCVBUF ";
-        
+      if(recv_reactors > 0 && ev_fileno > 0){
         UdpReceiverPtr r_ptr;
         for(int t=0;t<recv_reactors;t++){
-          r_ptr = std::make_shared<UdpReceiver>(ev_fileno, rcvbuff, m_queue_received, m_queue_fds, debug);
+          r_ptr = std::make_shared<UdpReceiver>(sock_fileno, recv_sockets_a_reactor, 
+                                                m_queue_received, ev_fileno, debug);
           std::thread ( [d=r_ptr]{ d->run(); } ).detach();
           m_receivers.push_back(r_ptr);
         }
-
-        // Epoll threads setup
-        int epollfd = epoll_create(recv_reactors);
-        if (epollfd == -1) {
-          std::cerr << "Error epoll_create1";
-          recv_reactors=0;;
-        }
-
-        struct epoll_event ev;
-        for(int t=0; t < recv_reactors * recv_sockets_a_reactor; t++){
-
-          ev = {};
-          ev.events = EPOLLIN;
-	        ev.data.fd = dup(sock_fileno);   
-
-          make_socket_nonblocking(ev.data.fd);
-	        if (epoll_ctl(epollfd, EPOLL_CTL_ADD, ev.data.fd, &ev) == -1) {
-            std::cerr << "Error epollf_ctl:" << epollfd << "\n";
-		        return;
-	        }
-        }
-
-        EpollPtr p_ptr;
-        p_ptr = std::make_shared<Epoll>(epollfd, recv_reactors, m_queue_fds, debug);
-        std::thread ( [d=p_ptr]{ d->run(); } ).detach();
-        m_epolls.push_back(p_ptr);
       }
 
+      // let the thread instances to initiate  
+     
+      bool wait;
+      do{
+        wait = false;
+        if(wait)
+          std::this_thread::sleep_for(std::chrono::microseconds(1));
+        
+        for(auto &d : m_dispatchers){
+          if(d->m_run.load())  continue;
+          wait = true;
+          break;
+        }
+        for(auto &d : m_receivers){
+          if(d->m_run.load())  continue;
+          wait = true;
+          break;
+        }
+      } while (wait);
     }
 
    // DISPATCH
@@ -549,10 +517,6 @@ class UdpHandlerDest {
       if(m_debug >= 1)
         std::cout << "UdpHandlerDest shutting down" << "\n";
 
-      for(auto &d : m_epolls)
-          d->shutdown();
-      m_queue_fds->stopping();
-
       for(auto &d : m_dispatchers)
           d->shutdown();
       m_queue_received->stopping();
@@ -576,10 +540,7 @@ class UdpHandlerDest {
 
     std::vector<std::shared_ptr<UdpReceiver>> m_receivers;
     QueueMsgPtr m_queue_received = std::make_shared<Queue<QueueItemMsg>>();
-    
-    std::vector<std::shared_ptr<Epoll>> m_epolls;
-    QueueFdPtr m_queue_fds = std::make_shared<Queue<QueueItemFd>>();
-
+  
     int m_debug;
 };
 
