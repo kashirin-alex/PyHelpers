@@ -238,10 +238,11 @@ class UdpReceiver : std::enable_shared_from_this<UdpReceiver>{
 
     UdpReceiver(int sock_fileno, int recv_sockets_a_reactor,  
                 QueueMsgPtr q_received, int ev_fileno, int debug):
-                m_max_evs(recv_sockets_a_reactor), m_ev_fd(ev_fileno), 
+                m_ev_fd(ev_fileno), 
                 m_queue_received(q_received), 
                 m_debug(debug) {
-
+      m_max_evs = recv_sockets_a_reactor;
+      
       // Get size for receiving buffer
       m_rcvbuff = 512;
       socklen_t optlen = sizeof(m_rcvbuff);
