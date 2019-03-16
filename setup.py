@@ -20,6 +20,19 @@ extenstions = [
               # language='c++17',
               ),
     # from pyhelpers.udp_handler_dest import UdpHandlerDest
+    Extension('pyhelpers.tcmalloc',
+              sources=['pyhelpers/tcmalloc.cc'],
+              include_dirs=include_dirs,
+              libraries=[],
+              library_dirs=library_dirs,
+              extra_compile_args=['-D_LARGEFILE_SOURCE', '-D_FILE_OFFSET_BITS=64', '-m64', '-D_REENTRANT', '-DNDEBUG',
+                                  '-s', '-static-libgcc', '-static-libstdc++', '-fPIC', '-std=c++17',
+                                  '-O3', '-flto', '-fuse-linker-plugin', '-ffat-lto-objects', '-floop-interchange',
+                                  '-DTCMALLOC', '-ltcmalloc', '-lunwind',
+                                  '-fno-builtin-malloc', '-fno-builtin-calloc', '-fno-builtin-realloc', '-fno-builtin-free'],
+              # language='c++17',
+              ),
+    # from pyhelpers.tcmalloc import TCMalloc
 ]
 
 setup(

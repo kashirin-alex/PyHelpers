@@ -1,2 +1,2 @@
-__all__ = ['udp_handler_dest']
+__all__ = ['udp_handler_dest', 'tcmalloc']
 
