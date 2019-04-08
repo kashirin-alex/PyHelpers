@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <array>
+#include <queue>
 
 #include <pybind11/pybind11.h>
 namespace py = pybind11;
@@ -54,7 +55,7 @@ class Queue : std::enable_shared_from_this<Queue<T>>{
         return item;
       
       item = *(m_queue.front().get());
-      m_queue.erase(m_queue.begin());
+      m_queue.pop();
       return item;
     }
 
@@ -62,7 +63,7 @@ class Queue : std::enable_shared_from_this<Queue<T>>{
     void push_back(T item){
       {
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_queue.push_back(std::make_shared<T>(item));
+        m_queue.push(std::make_shared<T>(item));
       }
       m_blocker_cv.notify_one();
     }
@@ -83,7 +84,7 @@ class Queue : std::enable_shared_from_this<Queue<T>>{
 
   private:
     std::mutex m_mutex;
-    std::vector<std::shared_ptr<T>> m_queue;
+    std::queue<std::shared_ptr<T>> m_queue;
     
     std::condition_variable m_blocker_cv;
     std::mutex m_blocker;
